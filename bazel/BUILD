@@ -67,9 +67,15 @@ alias(
     }),
 )
 
+constraint_value(
+    name = "os_emscripten",
+    constraint_setting = "@platforms//os",
+)
+
 platform(
     name = "platform_wasm",
     constraint_values = [
         "@platforms//cpu:wasm32",
+        ":os_emscripten",
     ],
 )
