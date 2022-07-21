@@ -39,6 +39,7 @@ filegroup(
         "bin/wasm-emscripten-finalize{bin_extension}",
         "bin/wasm-ld{bin_extension}",
         "bin/wasm-opt{bin_extension}",
+        "bin/wasm-metadce{bin_extension}",
    ],
 )
 
