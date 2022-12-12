@@ -2,18 +2,13 @@ load(":toolchain.bzl", "emscripten_cc_toolchain_config_rule")
 
 package(default_visibility = ["//visibility:public"])
 
-# Name depends on rules_nodejs version being used.
-# https://github.com/emscripten-core/emsdk/issues/1020
-# https://github.com/bazelbuild/rules_nodejs/issues/3375
-node_files = "@nodejs_host//:node_files"
-
 filegroup(
     name = "common_files",
     srcs = [
         "emscripten_config",
         "env.sh",
         "env.bat",
-        node_files,
+        "@nodejs_host//:node_files",
     ],
 )
 
@@ -62,6 +57,7 @@ emscripten_cc_toolchain_config_rule(
         "@bazel_tools//src/conditions:host_windows": "bat",
         "//conditions:default": "sh",
     }),
+    node_binary = "@nodejs_host//:node",
 )
 
 cc_toolchain(
