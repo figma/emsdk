@@ -24,6 +24,7 @@ filegroup(
         "emscripten/emcc.py",
         "bin/clang{bin_extension}",
         "bin/clang++{bin_extension}",
+        "bin/llc{bin_extension}",
         ":includes",
     ],
 )
