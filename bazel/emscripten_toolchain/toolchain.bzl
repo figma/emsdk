@@ -77,6 +77,7 @@ def _impl(ctx):
     emcc_script = "emcc.%s" % ctx.attr.script_extension
     emcc_link_script = "emcc_link.%s" % ctx.attr.script_extension
     emar_script = "emar.%s" % ctx.attr.script_extension
+    dwp_path = "dwp.sh"
 
     ################################################################
     # Tools
@@ -98,6 +99,7 @@ def _impl(ctx):
         tool_path(name = "nm", path = "NOT_USED"),
         tool_path(name = "objdump", path = "/bin/false"),
         tool_path(name = "strip", path = "NOT_USED"),
+        tool_path(name = "dwp", path = dwp_path),
     ]
 
     ################################################################
@@ -277,6 +279,44 @@ def _impl(ctx):
     # Features
     ################################################################
 
+    per_object_debug_info_feature = feature(
+        name = "per_object_debug_info",
+        enabled = True,
+        flag_sets = [
+            flag_set(
+                actions = [
+                    ACTION_NAMES.c_compile,
+                    ACTION_NAMES.cpp_compile,
+                    ACTION_NAMES.cpp_module_codegen,
+                    ACTION_NAMES.assemble,
+                    ACTION_NAMES.preprocess_assemble,
+                ],
+                flag_groups = [
+                    flag_group(
+                        flags = ["-gsplit-dwarf", "-g3"],
+                        expand_if_available = "per_object_debug_info_file",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    fission_support_feature = feature(
+        name = "fission_support",
+        flag_sets = [
+            flag_set(
+                actions = all_link_actions,
+                flag_groups = [
+                    flag_group(
+                        flags = ["-Wl,--gdb-index"],
+                        expand_if_available = "is_using_fission",
+                    ),
+                ],
+            ),
+        ],
+    )
+    
+
     features = [
         # This set of magic "feature"s are important configuration information for blaze.
         feature(name = "no_legacy_features", enabled = True),
@@ -301,6 +341,10 @@ def _impl(ctx):
         # Blaze requests this feature by default.
         # Blaze also tests if this feature is supported, before setting the "pic" build-variable.
         feature(name = "pic"),
+
+        # Support bazel debug info fission
+        per_object_debug_info_feature,
+        fission_support_feature,
 
         # Blaze requests this feature by default.
         # Blaze also tests if this feature is supported before setting preprocessor_defines

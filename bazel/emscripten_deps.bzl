@@ -33,6 +33,13 @@ filegroup(
 )
 
 filegroup(
+    name = "dwp_files",
+    srcs = [
+        "bin/llvm-dwp",
+    ],
+)
+
+filegroup(
     name = "linker_files",
     srcs = [
         "emscripten/emcc.py",
