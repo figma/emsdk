@@ -294,6 +294,10 @@ def _impl(ctx):
         # Formerly "needsPic" attribute
         feature(name = "supports_pic", enabled = False),
 
+        # At figma, this toolchain supports relocatable pre-compiled headers.
+        # This is provided through the `cc-shim` used to create `emcc.sh`
+        feature(name = "supports_relocatable_pch", enabled = True),
+
         # Blaze requests this feature by default.
         # Blaze also tests if this feature is supported, before setting the "pic" build-variable.
         feature(name = "pic"),
@@ -930,9 +934,11 @@ def _impl(ctx):
             actions = preprocessor_compile_actions +
                       [ACTION_NAMES.cc_flags_make_variable],
             flags = [
-                "-iwithsysroot" + "/include/c++/v1",
-                "-iwithsysroot" + "/include/compat",
-                "-iwithsysroot" + "/include",
+                emscripten_dir + "/emscripten/cache/sysroot/include/c++/v1",
+                "-isystem",
+                emscripten_dir + "/emscripten/cache/sysroot/include/compat",
+                "-isystem",
+                emscripten_dir + "/emscripten/cache/sysroot/include",
                 "-isystem",
                 emscripten_dir + "/lib/clang/19/include",
             ],
