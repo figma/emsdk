@@ -61,7 +61,7 @@ if oformat is not None:
 
   # If the output name has no extension, give it the appropriate extension.
   if not base_name_split[1]:
-    os.rename(output_file, output_file + '.' + oformat)
+    os.replace(output_file, output_file + '.' + oformat)
 
   # If the output name does have an extension and it matches the output format,
   # change the base_name so it doesn't have an extension.
@@ -77,7 +77,7 @@ if oformat is not None:
   # Please don't do that.
   else:
     base_name = base_name_split[0]
-    os.rename(output_file, os.path.join(outdir, base_name + '.' + oformat))
+    os.replace(output_file, os.path.join(outdir, base_name + '.' + oformat))
 
 files = []
 extensions = [
@@ -90,7 +90,8 @@ extensions = [
     '.data',
     '.js.symbols',
     '.wasm.debug.wasm',
-    '.html'
+    '.html',
+    '.aw.js'
 ]
 
 for ext in extensions:
@@ -138,7 +139,7 @@ if os.path.exists(wasm_base + '.debug.wasm') and os.path.exists(wasm_base):
     final_bytes.extend((base_name + '.wasm.debug.wasm').encode())
 
     # Write our length + filename bytes to a temp file.
-    with open('debugsection.tmp', 'wb+') as f:
+    with open(base_name + '_debugsection.tmp', 'wb+') as f:
       f.write(final_bytes)
       f.close()
 
@@ -151,7 +152,7 @@ if os.path.exists(wasm_base + '.debug.wasm') and os.path.exists(wasm_base):
     subprocess.check_call([
         llvm_objcopy,
         wasm_base,
-        '--add-section=external_debug_info=debugsection.tmp'])
+        '--add-section=external_debug_info=' + base_name + '_debugsection.tmp'])
 
 # Make sure we have at least one output file.
 if not len(files):
@@ -159,8 +160,8 @@ if not len(files):
   sys.exit(1)
 
 # cc_binary must output exactly one file; put all the output files in a tarball.
-cmd = ['tar', 'cf', 'tmp.tar'] + files
+cmd = ['tar', 'cf', base_name + '.tar'] + files
 subprocess.check_call(cmd, cwd=outdir)
-os.rename(os.path.join(outdir, 'tmp.tar'), output_file)
+os.replace(os.path.join(outdir, base_name + '.tar'), output_file)
 
 sys.exit(0)

@@ -1,21 +1,12 @@
 version: 2.1
 
 orbs:
-  win: circleci/windows@1.0.0
+  win: circleci/windows@5.0
 
 executors:
-  bionic:
+  ubuntu:
     docker:
-      - image: buildpack-deps:bionic
-  mac:
-    environment:
-      EMSDK_NOTTY: "1"
-      # Without this, any `brew install` command will result in self-update of
-      # brew itself which takes more than 4 minutes.
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-    macos:
-      xcode: "12.5.1"
-    resource_class: macos.x86.medium.gen2
+      - image: buildpack-deps:focal
   mac_arm64:
     environment:
       EMSDK_NOTTY: "1"
@@ -27,7 +18,7 @@ executors:
     resource_class: macos.m1.medium.gen1
   linux_arm64:
     machine:
-      image: ubuntu-2004:202101-01
+      image: ubuntu-2004:2023.07.1
     resource_class: arm.medium
 
 commands:
@@ -50,22 +41,20 @@ commands:
 
 jobs:
   flake8:
-    executor: bionic
+    executor: ubuntu
     steps:
       - checkout
       - run:
           name: install pip
           command: |
             apt-get update -q
-            apt-get install -q -y python-pip python3-pip
-      - run: python2 -m pip install --upgrade pip
+            apt-get install -q -y python3-pip
       - run: python3 -m pip install --upgrade pip
-      - run: python2 -m pip install flake8==3.7.8
-      - run: python3 -m pip install flake8==3.7.8
-      - run: python2 -m flake8 --show-source --statistics
-      - run: python3 -m flake8 --show-source --statistics
+      - run: python3 -m pip install flake8==3.9.2
+      - run: python3 -m flake8 --show-source --statistics --extend-exclude=./scripts
+
   test-linux:
-    executor: bionic
+    executor: ubuntu
     environment:
       EMSDK_NOTTY: "1"
       # This is needed because the old gcc-7 that is installed on debian/bionic
@@ -96,11 +85,6 @@ jobs:
           name: Install debian packages
           command: sudo apt-get update -q && sudo apt-get install -q cmake build-essential openjdk-8-jre-headless
       - run: test/test.sh
-  test-mac:
-    executor: mac
-    steps:
-      - setup-macos
-      - test-macos
   test-mac-arm64:
     executor: mac_arm64
     steps:
@@ -108,7 +92,7 @@ jobs:
       - test-macos
   test-windows:
     executor:
-      name: win/vs2019
+      name: win/server-2019
       shell: bash.exe
     environment:
       # We need python installed before we can test anytyhing.
@@ -173,29 +157,43 @@ jobs:
             $env:SYSTEM_FLAG="--system"
             test/test_path_preservation.ps1
 
-  build-docker-image:
-    executor: bionic
+  build-docker-image-x64:
+    executor: ubuntu
     steps:
       - checkout
       - run:
           name: install docker
-          command: apt-get update -q && apt-get install -q -y docker.io
+          command: |
+            apt-get update -q 
+            apt-get install -q -y ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            apt-get update -q
+            apt-get install -q -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
       - setup_remote_docker
-      # Build and test the tip-of-tree build of EMSDK
+      # Build the `latest` version of EMSDK as docker image
       - run:
           name: build
-          command: make -C ./docker version=tot build
+          command: make -C ./docker version=latest build
       - run:
           name: test
-          command: make -C ./docker version=tot test
+          command: make -C ./docker version=latest test
 
-  publish-docker-image:
-    executor: bionic
+  publish-docker-image-x64:
+    executor: ubuntu
     steps:
       - checkout
       - run:
           name: install docker
-          command: apt-get update -q && apt-get install -q -y docker.io
+          command: |
+            apt-get update -q 
+            apt-get install -q -y ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            apt-get update -q
+            apt-get install -q -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
       - setup_remote_docker
       - run:
           name: build
@@ -209,8 +207,24 @@ jobs:
             docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"
             make -C ./docker version=${CIRCLE_TAG} alias=latest push
 
+  publish-docker-image-arm64:
+    executor: linux_arm64
+    steps:
+      - checkout
+      - run:
+          name: build
+          command: make -C ./docker version=${CIRCLE_TAG} build
+      - run:
+          name: test
+          command: make -C ./docker version=${CIRCLE_TAG} test
+      - run:
+          name: push image
+          command: |
+            docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"
+            make -C ./docker version=${CIRCLE_TAG} alias=${CIRCLE_TAG}-arm64 only_alias=true push
+
   test-bazel-linux:
-    executor: bionic
+    executor: ubuntu
     steps:
       - checkout
       - run: apt-get install -q -y curl gnupg
@@ -229,11 +243,10 @@ jobs:
             apt-get install -q -y bazel
       - run: test/test_bazel.sh
 
-  test-bazel-mac:
-    executor: mac
+  test-bazel-mac-arm64:
+    executor: mac_arm64
     steps:
       - checkout
-      - run: brew install grep
       - run:
           name: install bazelisk
           command: |
@@ -242,7 +255,7 @@ jobs:
 
   test-bazel-windows:
     executor:
-      name: win/vs2019
+      name: win/server-2019
       shell: powershell.exe -ExecutionPolicy Bypass
     environment:
       PYTHONUNBUFFERED: "1"
@@ -273,9 +286,6 @@ workflows:
   test-linux-arm64:
     jobs:
       - test-linux-arm64
-  test-mac:
-    jobs:
-      - test-mac
   test-mac-arm64:
     jobs:
       - test-mac-arm64
@@ -284,8 +294,14 @@ workflows:
       - test-windows
   build-docker-image:
     jobs:
-      - build-docker-image
-      - publish-docker-image:
+      - build-docker-image-x64
+      - publish-docker-image-x64:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /.*/
+      - publish-docker-image-arm64:
           filters:
             branches:
               ignore: /.*/
@@ -294,9 +310,9 @@ workflows:
   test-bazel-linux:
     jobs:
       - test-bazel-linux
-  test-bazel-mac:
+  test-bazel-mac-arm64:
     jobs:
-      - test-bazel-mac
+      - test-bazel-mac-arm64
   test-bazel-windows:
     jobs:
       - test-bazel-windows

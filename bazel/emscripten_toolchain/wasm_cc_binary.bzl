@@ -25,7 +25,9 @@ def _wasm_transition_impl(settings, attr):
     if attr.simd:
         features.append("wasm_simd")
 
+    platform = "@emsdk//:platform_wasm"
     if attr.standalone:
+        platform = "@emsdk//:platform_wasi"
         features.append("wasm_standalone")
 
     return {
@@ -35,7 +37,7 @@ def _wasm_transition_impl(settings, attr):
         "//command_line_option:features": features,
         "//command_line_option:dynamic_mode": "off",
         "//command_line_option:linkopt": linkopts,
-        "//command_line_option:platforms": ["@emsdk//:platform_wasm"],
+        "//command_line_option:platforms": [platform],
         "//command_line_option:custom_malloc": "@emsdk//emscripten_toolchain:malloc",
     }
 
@@ -67,7 +69,9 @@ _ALLOW_OUTPUT_EXTNAMES = [
     ".fetch.js",
     ".js.symbols",
     ".wasm.debug.wasm",
+    ".wasm.debug.wasm.dwp",
     ".html",
+    ".aw.js",
 ]
 
 _WASM_BINARY_COMMON_ATTRS = {
@@ -126,12 +130,15 @@ def _wasm_cc_binary_impl(ctx):
         executable = ctx.executable._wasm_binary_extractor,
     )
 
-    return DefaultInfo(
-        files = depset(ctx.outputs.outputs),
-        # This is needed since rules like web_test usually have a data
-        # dependency on this target.
-        data_runfiles = ctx.runfiles(transitive_files = depset(ctx.outputs.outputs)),
-    )
+    return [
+        DefaultInfo(
+            files = depset(ctx.outputs.outputs),
+            # This is needed since rules like web_test usually have a data
+            # dependency on this target.
+            data_runfiles = ctx.runfiles(transitive_files = depset(ctx.outputs.outputs)),
+        ),
+        OutputGroupInfo(_wasm_tar = cc_target.files),
+    ]
 
 def _wasm_cc_binary_legacy_impl(ctx):
     cc_target = ctx.attr.cc_target[0]
@@ -146,7 +153,22 @@ def _wasm_cc_binary_legacy_impl(ctx):
         ctx.outputs.symbols,
         ctx.outputs.dwarf,
         ctx.outputs.html,
+        ctx.outputs.audio_worklet,
     ]
+
+    if cc_target[DebugPackageInfo].dwp_file:
+        # We'll receive a `dwp_file` if fission was enabled.
+        ctx.actions.symlink(
+            output = ctx.outputs.dwp_file,
+            target_file = cc_target[DebugPackageInfo].dwp_file,
+        )
+    else:
+        # Otherwise, we'll create an empty file.
+        ctx.actions.write(
+            output = ctx.outputs.dwp_file,
+            content = "",
+        )
+
 
     args = ctx.actions.args()
     args.add("--allow_empty_outputs")
@@ -160,13 +182,18 @@ def _wasm_cc_binary_legacy_impl(ctx):
         executable = ctx.executable._wasm_binary_extractor,
     )
 
-    return DefaultInfo(
-        executable = ctx.outputs.wasm,
-        files = depset(outputs),
-        # This is needed since rules like web_test usually have a data
-        # dependency on this target.
-        data_runfiles = ctx.runfiles(transitive_files = depset(outputs)),
-    )
+    all_outputs = outputs + [ctx.outputs.dwp_file]
+
+    return [
+        DefaultInfo(
+            executable = ctx.outputs.wasm,
+            files = depset(all_outputs),
+            # This is needed since rules like web_test usually have a data
+            # dependency on this target.
+            data_runfiles = ctx.runfiles(transitive_files = depset(all_outputs)),
+        ),
+        OutputGroupInfo(_wasm_tar = cc_target.files),
+    ]
 
 _wasm_cc_binary = rule(
     implementation = _wasm_cc_binary_impl,
@@ -192,7 +219,9 @@ def _wasm_binary_legacy_outputs(name, cc_target):
         "data": "{}/{}.data".format(name, basename),
         "symbols": "{}/{}.js.symbols".format(name, basename),
         "dwarf": "{}/{}.wasm.debug.wasm".format(name, basename),
+        "dwp_file": "{}/{}.wasm.debug.wasm.dwp".format(name, basename),
         "html": "{}/{}.html".format(name, basename),
+        "audio_worklet": "{}/{}.aw.js".format(name, basename)
     }
 
     return outputs

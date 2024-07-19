@@ -77,6 +77,7 @@ def _impl(ctx):
     emcc_script = "emcc.%s" % ctx.attr.script_extension
     emcc_link_script = "emcc_link.%s" % ctx.attr.script_extension
     emar_script = "emar.%s" % ctx.attr.script_extension
+    dwp_path = "dwp.sh"
 
     ################################################################
     # Tools
@@ -98,6 +99,7 @@ def _impl(ctx):
         tool_path(name = "nm", path = "NOT_USED"),
         tool_path(name = "objdump", path = "/bin/false"),
         tool_path(name = "strip", path = "NOT_USED"),
+        tool_path(name = "dwp", path = dwp_path),
     ]
 
     ################################################################
@@ -277,6 +279,44 @@ def _impl(ctx):
     # Features
     ################################################################
 
+    per_object_debug_info_feature = feature(
+        name = "per_object_debug_info",
+        enabled = True,
+        flag_sets = [
+            flag_set(
+                actions = [
+                    ACTION_NAMES.c_compile,
+                    ACTION_NAMES.cpp_compile,
+                    ACTION_NAMES.cpp_module_codegen,
+                    ACTION_NAMES.assemble,
+                    ACTION_NAMES.preprocess_assemble,
+                ],
+                flag_groups = [
+                    flag_group(
+                        flags = ["-gsplit-dwarf", "-g3"],
+                        expand_if_available = "per_object_debug_info_file",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    fission_support_feature = feature(
+        name = "fission_support",
+        flag_sets = [
+            flag_set(
+                actions = all_link_actions,
+                flag_groups = [
+                    flag_group(
+                        flags = ["-Wl,--gdb-index"],
+                        expand_if_available = "is_using_fission",
+                    ),
+                ],
+            ),
+        ],
+    )
+    
+
     features = [
         # This set of magic "feature"s are important configuration information for blaze.
         feature(name = "no_legacy_features", enabled = True),
@@ -294,9 +334,17 @@ def _impl(ctx):
         # Formerly "needsPic" attribute
         feature(name = "supports_pic", enabled = False),
 
+        # At figma, this toolchain supports relocatable pre-compiled headers.
+        # This is provided through the `cc-shim` used to create `emcc.sh`
+        feature(name = "supports_relocatable_pch", enabled = True),
+
         # Blaze requests this feature by default.
         # Blaze also tests if this feature is supported, before setting the "pic" build-variable.
         feature(name = "pic"),
+
+        # Support bazel debug info fission
+        per_object_debug_info_feature,
+        fission_support_feature,
 
         # Blaze requests this feature by default.
         # Blaze also tests if this feature is supported before setting preprocessor_defines
@@ -344,6 +392,16 @@ def _impl(ctx):
         feature(
             name = "fastbuild",
             provides = ["variant:crosstool_build_mode"],
+        ),
+
+        # Feature to prevent 'command line too long' issues
+        feature(
+            name = "archive_param_file",
+            enabled = True,
+        ),
+        feature(
+            name = "compiler_param_file",
+            enabled = True,
         ),
 
         #### User-settable features
@@ -424,13 +482,18 @@ def _impl(ctx):
             name = "wasm_simd",
             requires = [feature_set(features = ["llvm_backend"])],
         ),
+        # Adds relaxed-simd support, only available with the llvm backend.
+        feature(
+            name = "wasm_relaxed_simd",
+            requires = [feature_set(features = ["llvm_backend"])],
+        ),
         feature(
             name = "precise_long_double_printf",
             enabled = True,
         ),
         feature(
             name = "wasm_warnings_as_errors",
-            enabled = True,
+            enabled = False,
         ),
 
         # ASan and UBSan. See also:
@@ -549,6 +612,11 @@ def _impl(ctx):
             actions = all_compile_actions + all_link_actions,
             flags = ["-msimd128"],
             features = ["wasm_simd"],
+        ),
+        flag_set(
+            actions = all_compile_actions + all_link_actions,
+            flags = ["-msimd128", "-mrelaxed-simd"],
+            features = ["wasm_relaxed_simd"],
         ),
         flag_set(
             actions = all_link_actions,
@@ -910,11 +978,13 @@ def _impl(ctx):
             actions = preprocessor_compile_actions +
                       [ACTION_NAMES.cc_flags_make_variable],
             flags = [
-                "-iwithsysroot" + "/include/c++/v1",
-                "-iwithsysroot" + "/include/compat",
-                "-iwithsysroot" + "/include",
+                emscripten_dir + "/emscripten/cache/sysroot/include/c++/v1",
                 "-isystem",
-                emscripten_dir + "/lib/clang/17/include",
+                emscripten_dir + "/emscripten/cache/sysroot/include/compat",
+                "-isystem",
+                emscripten_dir + "/emscripten/cache/sysroot/include",
+                "-isystem",
+                emscripten_dir + "/lib/clang/19/include",
             ],
         ),
         # Inputs and outputs
@@ -1040,6 +1110,10 @@ def _impl(ctx):
                     key = "EM_CONFIG_PATH",
                     value = ctx.file.em_config.path,
                 ),
+                env_entry(
+                    key = "NODE_JS",
+                    value = ctx.file.node_binary.path,
+                )
             ],
         ),
         # Use llvm backend.  Off by default, enabled via --features=llvm_backend
@@ -1081,7 +1155,7 @@ def _impl(ctx):
         emscripten_dir + "/emscripten/cache/sysroot/include/c++/v1",
         emscripten_dir + "/emscripten/cache/sysroot/include/compat",
         emscripten_dir + "/emscripten/cache/sysroot/include",
-        emscripten_dir + "/lib/clang/17/include",
+        emscripten_dir + "/lib/clang/19/include",
     ]
 
     artifact_name_patterns = []
@@ -1115,6 +1189,7 @@ emscripten_cc_toolchain_config_rule = rule(
         "em_config": attr.label(mandatory = True, allow_single_file = True),
         "emscripten_binaries": attr.label(mandatory = True, cfg = "exec"),
         "script_extension": attr.string(mandatory = True, values = ["sh", "bat"]),
+        "node_binary": attr.label(mandatory = True, allow_single_file = True, cfg = "exec"),
     },
     provides = [CcToolchainConfigInfo],
 )
