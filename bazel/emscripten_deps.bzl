@@ -80,6 +80,12 @@ def emscripten_deps(emscripten_version = "latest"):
         fail(error_msg)
 
     revision = EMSCRIPTEN_TAGS[version]
+    archive_ext = "tar.xz"
+    archive_type = "tar.xz"
+
+    if is_version_less_than(version, "3.1.47"):
+        archive_ext = "tbz2"
+        archive_type = "tar.bz2"
 
     emscripten_url = "https://storage.googleapis.com/webassembly/emscripten-releases-builds/{}/{}/wasm-binaries{}.{}"
 
@@ -91,41 +97,41 @@ def emscripten_deps(emscripten_version = "latest"):
         http_archive(
             name = "emscripten_bin_linux",
             strip_prefix = "install",
-            url = emscripten_url.format("linux", revision.hash, "", "tar.xz"),
+            url = emscripten_url.format("linux", revision.hash, "", archive_ext),
             sha256 = revision.sha_linux,
             build_file_content = BUILD_FILE_CONTENT_TEMPLATE.format(bin_extension = ""),
-            type = "tar.xz",
+            type = archive_type,
         )
 
     if "emscripten_bin_linux_arm64" not in excludes:
         http_archive(
             name = "emscripten_bin_linux_arm64",
             strip_prefix = "install",
-            url = emscripten_url.format("linux", revision.hash, "-arm64", "tar.xz"),
+            url = emscripten_url.format("linux", revision.hash, "-arm64", archive_ext),
             # Not all versions have a linux/arm64 release: https://github.com/emscripten-core/emsdk/issues/547
             sha256 = getattr(revision, "sha_linux_arm64", None),
             build_file_content = BUILD_FILE_CONTENT_TEMPLATE.format(bin_extension = ""),
-            type = "tar.xz",
+            type = archive_type,
         )
 
     if "emscripten_bin_mac" not in excludes:
         http_archive(
             name = "emscripten_bin_mac",
             strip_prefix = "install",
-            url = emscripten_url.format("mac", revision.hash, "", "tar.xz"),
+            url = emscripten_url.format("mac", revision.hash, "", archive_ext),
             sha256 = revision.sha_mac,
             build_file_content = BUILD_FILE_CONTENT_TEMPLATE.format(bin_extension = ""),
-            type = "tar.xz",
+            type = archive_type,
         )
 
     if "emscripten_bin_mac_arm64" not in excludes:
         http_archive(
             name = "emscripten_bin_mac_arm64",
             strip_prefix = "install",
-            url = emscripten_url.format("mac", revision.hash, "-arm64", "tar.xz"),
+            url = emscripten_url.format("mac", revision.hash, "-arm64", archive_ext),
             sha256 = revision.sha_mac_arm64,
             build_file_content = BUILD_FILE_CONTENT_TEMPLATE.format(bin_extension = ""),
-            type = "tar.xz",
+            type = archive_type,
         )
 
     if "emscripten_bin_win" not in excludes:
@@ -138,5 +144,14 @@ def emscripten_deps(emscripten_version = "latest"):
             type = "zip",
         )
 
+def is_version_less_than(a, b):
+    def map(f, list):
+        return [f(x) for x in list]
 
+    def parse_version(version):
+        return tuple(map(int, version.split(".")))
 
+    a_tuple = parse_version(a)
+    b_tuple = parse_version(b)
+
+    return a_tuple < b_tuple
